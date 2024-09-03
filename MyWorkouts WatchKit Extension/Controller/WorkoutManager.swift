@@ -7,12 +7,124 @@ The workout manager that interfaces with HealthKit.
 
 import Foundation
 import HealthKit
+import CoreMotion
+import SwiftUI
+
+enum MetricType {
+    case currentHeartrate
+    case averageHeartRate
+    case curentCadence
+    case averageCadence
+    case currentPace
+    case averagePace
+    case energy
+    case distance
+}
+
+struct MetricItem: Identifiable, Hashable {
+    let id = UUID()
+    var value: Double
+    var unit: MetricType
+    var activityType: HKWorkoutActivityType
+    
+    var unitTitle: String {
+        switch unit {
+        case .currentHeartrate:
+            "BPM"
+        case .averageHeartRate:
+            "BPM"
+        case .curentCadence:
+            switch activityType {
+            case .running:
+                "SPM"
+            case .cycling:
+                "RPM"
+            default:
+                "SPM"
+            }
+        case .averageCadence:
+            switch activityType {
+            case .running:
+                "SPM"
+            case .cycling:
+                "RPM"
+            default:
+                "SPM"
+            }
+        case .currentPace:
+            ""
+        case .averagePace:
+            ""
+        case .energy:
+            "KKAL"
+        case .distance:
+            "m"
+        }
+    }
+    
+    var title: String {
+        switch unit {
+        case .currentHeartrate:
+            ""
+        case .averageHeartRate:
+            "AVG HR"
+        case .curentCadence:
+            ""
+        case .averageCadence:
+            ""
+        case .currentPace:
+            "PACE"
+        case .averagePace:
+            "AVG PACE"
+        case .energy:
+            ""
+        case .distance:
+            ""
+        }
+    }
+
+    var icon: String? {
+        switch unit {
+        case .currentHeartrate:
+            "heart.fill"
+        case .averageHeartRate:
+            nil
+        case .curentCadence:
+            nil
+        case .averageCadence:
+            nil
+        case .currentPace:
+            nil
+        case .averagePace:
+            nil
+        case .energy:
+            nil
+        case .distance:
+            nil
+        }
+    }
+}
+
+extension MetricItem {
+    static let testMetric = MetricItem(value: 0, unit: .currentHeartrate, activityType: .running)
+}
+
+extension Collection where Element == MetricItem {
+    static var testMetrics: [MetricItem] { [
+        .init(value: 160, unit: .currentHeartrate, activityType: .running),
+        .init(value: 175, unit: .curentCadence, activityType: .running),
+        .init(value: 5, unit: .distance, activityType: .running)
+    ]
+    }
+}
 
 class WorkoutManager: NSObject, ObservableObject {
+    private let pedometer = CMPedometer()
     var selectedWorkout: HKWorkoutActivityType? {
         didSet {
             guard let selectedWorkout = selectedWorkout else { return }
             startWorkout(workoutType: selectedWorkout)
+            setActivityType(for: selectedWorkout)
         }
     }
 
@@ -30,6 +142,7 @@ class WorkoutManager: NSObject, ObservableObject {
 
     // Start the workout.
     func startWorkout(workoutType: HKWorkoutActivityType) {
+        
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = workoutType
         configuration.locationType = .outdoor
@@ -57,6 +170,24 @@ class WorkoutManager: NSObject, ObservableObject {
         builder?.beginCollection(withStart: startDate) { (success, error) in
             // The workout has started.
         }
+        
+        //Calculating cadence using pedometer
+        calculateCurrentCadenceUsingPedometer()
+    }
+    
+    private func calculateCurrentCadenceUsingPedometer() {
+        if CMPedometer.isStepCountingAvailable() {
+            pedometer.startUpdates(from: Date()) { [weak self] pedometerData, error in
+                guard let pedometerData = pedometerData, error == nil else { return }
+                
+                DispatchQueue.main.async {
+                    if let cadence = pedometerData.currentCadence {
+                        self?.cadence.value = cadence.doubleValue * 60
+                        print("Cadence updated from Pedometer data")
+                    }
+                }
+            }
+        }
     }
 
     // Request authorization to access HealthKit.
@@ -72,6 +203,9 @@ class WorkoutManager: NSObject, ObservableObject {
             HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)!,
             HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)!,
             HKQuantityType.quantityType(forIdentifier: .distanceCycling)!,
+            HKQuantityType.quantityType(forIdentifier: .runningSpeed)!,
+            HKQuantityType.quantityType(forIdentifier: .cyclingSpeed)!,
+            HKQuantityType.quantityType(forIdentifier: .cyclingCadence)!,
             HKObjectType.activitySummaryType()
         ]
 
@@ -105,14 +239,31 @@ class WorkoutManager: NSObject, ObservableObject {
     func endWorkout() {
         session?.end()
         showingSummaryView = true
+        pedometer.stopUpdates()
     }
-
     // MARK: - Workout Metrics
-    @Published var averageHeartRate: Double = 0
-    @Published var heartRate: Double = 0
-    @Published var activeEnergy: Double = 0
-    @Published var distance: Double = 0
+    @Published var averageHeartRate: MetricItem = .init(value: 0, unit: .averageHeartRate, activityType: .running)
+    @Published var heartRate: MetricItem = .init(value: 0, unit: .currentHeartrate, activityType: .running)
+    @Published var activeEnergy: MetricItem = .init(value: 0, unit: .energy, activityType: .running)
+    @Published var distance:MetricItem = .init(value: 0, unit: .distance, activityType: .running)
+    
+    //New metrics
+    @Published var currentPace : MetricItem = .init(value: 0, unit: .currentPace, activityType: .running)
+    @Published var averagePace : MetricItem = .init(value: 0, unit: .averagePace, activityType: .running)
+    @Published var cadence : MetricItem = .init(value: 0, unit: .curentCadence, activityType: .running)
+    
     @Published var workout: HKWorkout?
+    
+    private func setActivityType(for activity: HKWorkoutActivityType) {
+        averageHeartRate.activityType = activity
+        heartRate.activityType = activity
+        activeEnergy.activityType = activity
+        distance.activityType = activity
+        currentPace.activityType = activity
+        averagePace.activityType = activity
+        cadence.activityType = activity
+    }
+    
 
     func updateForStatistics(_ statistics: HKStatistics?) {
         guard let statistics = statistics else { return }
@@ -121,18 +272,33 @@ class WorkoutManager: NSObject, ObservableObject {
             switch statistics.quantityType {
             case HKQuantityType.quantityType(forIdentifier: .heartRate):
                 let heartRateUnit = HKUnit.count().unitDivided(by: HKUnit.minute())
-                self.heartRate = statistics.mostRecentQuantity()?.doubleValue(for: heartRateUnit) ?? 0
-                self.averageHeartRate = statistics.averageQuantity()?.doubleValue(for: heartRateUnit) ?? 0
+                self.heartRate.value = statistics.mostRecentQuantity()?.doubleValue(for: heartRateUnit) ?? 0
+                self.averageHeartRate.value = statistics.averageQuantity()?.doubleValue(for: heartRateUnit) ?? 0
             case HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned):
                 let energyUnit = HKUnit.kilocalorie()
-                self.activeEnergy = statistics.sumQuantity()?.doubleValue(for: energyUnit) ?? 0
-            case HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning), HKQuantityType.quantityType(forIdentifier: .distanceCycling):
+                self.activeEnergy.value = statistics.sumQuantity()?.doubleValue(for: energyUnit) ?? 0
+            case HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning),
+                HKQuantityType.quantityType(forIdentifier: .distanceCycling):
                 let meterUnit = HKUnit.meter()
-                self.distance = statistics.sumQuantity()?.doubleValue(for: meterUnit) ?? 0
+                self.distance.value = statistics.sumQuantity()?.doubleValue(for: meterUnit) ?? 0
+            case HKQuantityType.quantityType(forIdentifier: .runningSpeed):
+                let speedUnit = HKUnit.meter().unitDivided(by: HKUnit.second())
+                if let speed = statistics.averageQuantity()?.doubleValue(for: speedUnit) {
+                    self.averagePace.value = speed > 0 ? 1000 / (60 * speed) : 0 // Convert to min/km
+                }
+                if let currentSpeed = statistics.mostRecentQuantity()?.doubleValue(for: speedUnit) {
+                    self.currentPace.value = currentSpeed > 0 ? 1000 / (60 * currentSpeed) : 0 // Convert to min/km
+                }
+            case HKQuantityType.quantityType(forIdentifier: .cyclingCadence):
+                let cadenceUnit = HKUnit.count().unitDivided(by: .minute())
+                self.cadence.value = statistics.averageQuantity()?.doubleValue(for: cadenceUnit) ?? 0
+                self.cadence.value  *= 60
             default:
                 return
             }
         }
+
+
     }
 
     func resetWorkout() {
@@ -140,10 +306,14 @@ class WorkoutManager: NSObject, ObservableObject {
         builder = nil
         workout = nil
         session = nil
-        activeEnergy = 0
-        averageHeartRate = 0
-        heartRate = 0
-        distance = 0
+        activeEnergy.value = 0
+        averageHeartRate.value = 0
+        heartRate.value = 0
+        distance.value = 0
+        
+        currentPace.value = 0
+        averagePace.value = 0
+        cadence.value = 0
     }
 }
 
@@ -191,3 +361,4 @@ extension WorkoutManager: HKLiveWorkoutBuilderDelegate {
         }
     }
 }
+

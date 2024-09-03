@@ -14,13 +14,15 @@ struct SessionPagingView: View {
     @State private var selection: Tab = .metrics
 
     enum Tab {
-        case controls, metrics, nowPlaying
+        case controls, metrics, secondaryMetrics, combinedMetrics, nowPlaying
     }
 
     var body: some View {
         TabView(selection: $selection) {
             ControlsView().tag(Tab.controls)
-            MetricsView().tag(Tab.metrics)
+            metricsView.tag(Tab.metrics)
+            secondaryMetricsView.tag(Tab.secondaryMetrics)
+            combinedMetricsView.tag(Tab.combinedMetrics)
             NowPlayingView().tag(Tab.nowPlaying)
         }
         .navigationTitle(workoutManager.selectedWorkout?.name ?? "")
@@ -40,6 +42,47 @@ struct SessionPagingView: View {
             selection = .metrics
         }
     }
+    
+    @ViewBuilder
+    private var metricsView: some View {
+        let metricsToDisplay: [MetricItem] =
+        [
+            workoutManager.heartRate,
+            workoutManager.activeEnergy,
+            workoutManager.distance
+        ]
+        AdvancedMetricsView(metricsGroup: metricsToDisplay)
+    }
+    
+    @ViewBuilder
+    private var secondaryMetricsView: some View {
+        let metricsToDisplay: [MetricItem] =
+        [
+            workoutManager.cadence,
+            workoutManager.currentPace,
+            workoutManager.averagePace
+        ]
+        
+        AdvancedMetricsView(metricsGroup: metricsToDisplay)
+    }
+    
+    @ViewBuilder
+    private var combinedMetricsView: some View {
+        let metricsToDisplay: [[MetricItem]] = [
+            [
+                workoutManager.heartRate,
+                workoutManager.activeEnergy,
+                workoutManager.activeEnergy
+            ],
+            [
+                workoutManager.cadence,
+                workoutManager.currentPace,
+                workoutManager.averagePace
+            ]
+        ]
+        
+        AdvancedMetricsView(multipleMetricsGroups: metricsToDisplay)
+    }
 }
 
 struct PagingView_Previews: PreviewProvider {
@@ -47,3 +90,5 @@ struct PagingView_Previews: PreviewProvider {
         SessionPagingView().environmentObject(WorkoutManager())
     }
 }
+
+
